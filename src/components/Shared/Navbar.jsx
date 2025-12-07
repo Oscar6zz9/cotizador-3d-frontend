@@ -41,10 +41,10 @@ const Navbar = () => {
                         <div className="pl-6 border-l border-white/10 flex items-center gap-4">
                             {isAuthenticated ? (
                                 <div className="flex items-center gap-4">
-                                    <span className="text-sm text-slate-300 flex items-center gap-2">
+                                    <Link to="/profile" className="text-sm text-slate-300 flex items-center gap-2 hover:text-white transition-colors">
                                         <User className="w-4 h-4 text-cyan-400" />
                                         {user?.name}
-                                    </span>
+                                    </Link>
                                     <button
                                         onClick={handleLogout}
                                         className="p-2 rounded-lg text-slate-400 hover:bg-white/5 hover:text-white transition-all"

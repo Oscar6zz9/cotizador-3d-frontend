@@ -4,6 +4,7 @@ import Footer from './components/Shared/Footer';
 import QuoterPage from './pages/QuoterPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import ProfilePage from './pages/ProfilePage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 const ProtectedRoute = ({ children }) => {
@@ -29,6 +30,11 @@ function App() {
               <Route path="/cotizador" element={
                 <ProtectedRoute>
                   <QuoterPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/profile" element={
+                <ProtectedRoute>
+                  <ProfilePage />
                 </ProtectedRoute>
               } />
             </Routes>

@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect, Suspense, useMemo } from 'react';
-import { Canvas, useLoader, useFrame } from '@react-three/fiber';
+import { useState, useMemo } from 'react';
+import { Canvas } from '@react-three/fiber';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
 import { OrbitControls, Stage, Center, Grid } from '@react-three/drei';
 import * as THREE from 'three';
-import { Upload, Box, Settings, DollarSign, ArrowRight, Download, Check, X, Tag } from 'lucide-react';
+import { Upload, Box, Check, X, Tag, Download } from 'lucide-react';
 import clsx from 'clsx';
 import jsPDF from 'jspdf';
 import Swal from 'sweetalert2';
@@ -21,122 +21,102 @@ const formatCurrency = (amount) => {
     return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(amount);
 };
 
-// Model Viewer Component
-const ModelViewer = ({ url, onLoaded, scale }) => {
-    const meshRef = useRef();
-    const geom = useLoader(STLLoader, url);
-
-    useEffect(() => {
-        if (geom) {
-            geom.computeBoundingBox();
-            geom.center(); // Center geometry
-            const box = geom.boundingBox;
-            const x = (box.max.x - box.min.x);
-            const y = (box.max.y - box.min.y);
-            const z = (box.max.z - box.min.z);
-            onLoaded({ x, y, z });
-        }
-    }, [geom, onLoaded]);
-
-    useFrame((state) => {
-        if (meshRef.current) {
-            // simple auto-rotation if desired
-            // meshRef.current.rotation.y += 0.005; 
-        }
-    });
-
-    return (
-        <mesh ref={meshRef} geometry={geom} scale={scale}>
-            <meshStandardMaterial color="#06b6d4" roughness={0.3} metalness={0.2} />
-        </mesh>
-    );
-};
-
 const QuoterPage = () => {
+    // 1. STATE MANAGEMENT
     const [file, setFile] = useState(null);
-    const [fileUrl, setFileUrl] = useState(null);
-    const [dimensions, setDimensions] = useState({ x: 0, y: 0, z: 0 }); // Current dimensions (editable)
-    const [originalDimensions, setOriginalDimensions] = useState({ x: 0, y: 0, z: 0 }); // Original from file
+    const [geometry, setGeometry] = useState(null); // The loaded THREE.BufferGeometry
+    const [baseDims, setBaseDims] = useState({ x: 0, y: 0, z: 0 }); // Raw X,Y,Z of unscaled STL
+    const [scaleFactor, setScaleFactor] = useState(1); // Single number, default 1
+
     const [material, setMaterial] = useState(null);
     const [selectedColor, setSelectedColor] = useState(null);
     const [showModal, setShowModal] = useState(false);
-    const [itemPrice, setItemPrice] = useState(0);
     const [discountCode, setDiscountCode] = useState('');
 
     // Constants
     const SHIPPING_COST = 4990;
+    const MIN_PRICE = 5000;
 
     const materials = [
-        { id: 'resin', name: 'Resina', desc: 'Alta precisión', price: 60 }, // Price per cm3 (approx CLP)
+        { id: 'resin', name: 'Resina', desc: 'Alta precisión', price: 60 },
         { id: 'pla', name: 'Plástico (PLA)', desc: 'Resistente', price: 25 },
     ];
 
-    // Calculate scale vector based on original vs current dimensions
-    const modelScale = useMemo(() => {
-        if (originalDimensions.x === 0) return [1, 1, 1];
-        // Calculate scale factor from X axis change and apply uniformly (to maintain aspect ratio)
-        // Or if we want independent scaling, we'd do [x/ox, y/oy, z/oz]
-        // The prompt says "update the mesh.scale proportionally". Let's assume aspect ratio lock for now, 
-        // OR calculate scale based on the dominant change? 
-        // Simplest valid interpretation: X/Y/Z are tied. We'll use X as the master for the visual scale if ratios change?
-        // Actually, let's allow non-uniform scaling visual since inputs are separate.
-        return [
-            dimensions.x / originalDimensions.x,
-            dimensions.y / originalDimensions.y,
-            dimensions.z / originalDimensions.z
-        ];
-    }, [dimensions, originalDimensions]);
+    // Calculated Dimensions for Display (Base * Scale)
+    const displayDims = useMemo(() => {
+        return {
+            x: (baseDims.x * scaleFactor).toFixed(2),
+            y: (baseDims.y * scaleFactor).toFixed(2),
+            z: (baseDims.z * scaleFactor).toFixed(2)
+        };
+    }, [baseDims, scaleFactor]);
 
-    useEffect(() => {
-        if (dimensions.x > 0 && material) {
-            // Volume in mm3 -> cm3
-            const volumeCm3 = (parseFloat(dimensions.x) * parseFloat(dimensions.y) * parseFloat(dimensions.z)) / 1000;
-            // Price calculation
-            // Base logic: Volume * Material Rate
-            let price = volumeCm3 * material.price;
+    // Price Calculation
+    const totalPrice = useMemo(() => {
+        if (!geometry || !material) return 0;
 
-            // Minimum price logic
-            const minPrice = 5000; // CLP
-            setItemPrice(Math.max(price, minPrice));
-        } else {
-            setItemPrice(0);
-        }
-    }, [dimensions, material, selectedColor]);
+        // Volume in cm3 based on displayed dimensions
+        const volCm3 = (
+            parseFloat(displayDims.x) *
+            parseFloat(displayDims.y) *
+            parseFloat(displayDims.z)
+        ) / 1000;
 
+        let price = volCm3 * material.price;
+        return Math.max(price, MIN_PRICE);
+    }, [displayDims, material, geometry]);
+
+
+    // 2. FILE LOADING LOGIC
     const handleFileUpload = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            setFile(file);
-            const url = URL.createObjectURL(file);
-            setFileUrl(url);
+        const selectedFile = e.target.files[0];
+        if (!selectedFile) return;
+
+        setFile(selectedFile);
+        const url = URL.createObjectURL(selectedFile);
+        const loader = new STLLoader();
+
+        loader.load(url, (geom) => {
+            // IMMEDIATELY perform geometry operations
+            geom.computeBoundingBox();
+            const center = geom.boundingSphere?.center || new THREE.Vector3();
+            // Center the mesh at 0,0,0
+            geom.center();
+
+            const size = new THREE.Vector3();
+            geom.boundingBox.getSize(size);
+
+            // Save size into baseDims state
+            setBaseDims({ x: size.x, y: size.y, z: size.z });
+
+            // Reset scaleFactor to 1
+            setScaleFactor(1);
+
+            // Set geometry state
+            setGeometry(geom);
+
+            // Reset other UI states
             setMaterial(null);
             setSelectedColor(null);
-        }
+        });
     };
 
-    const handleModelLoaded = (dims) => {
-        // Round to 2 decimals
-        const cleanDims = {
-            x: parseFloat(dims.x.toFixed(2)),
-            y: parseFloat(dims.y.toFixed(2)),
-            z: parseFloat(dims.z.toFixed(2))
-        };
-        setOriginalDimensions(cleanDims);
-        setDimensions(cleanDims);
-    };
+    // 4. DIMENSION INPUTS LOGIC (Proportional Scaling)
+    const handleDimensionChange = (axis, newValue) => {
+        const val = parseFloat(newValue);
+        if (isNaN(val) || val <= 0) return;
 
-    const handleDimensionChange = (axis, value) => {
-        // In a real app we might lock aspect ratio here
-        setDimensions(prev => ({
-            ...prev,
-            [axis]: parseFloat(value) || 0
-        }));
+        const baseVal = baseDims[axis];
+        if (!baseVal || baseVal === 0) return;
+
+        // newScaleFactor = newInputValue / baseDims.axis
+        const newScaleFactor = val / baseVal;
+        setScaleFactor(newScaleFactor);
     };
 
     const generatePDF = () => {
         const doc = new jsPDF();
 
-        // Header
         doc.setFontSize(22);
         doc.setTextColor(6, 182, 212);
         doc.text('Cotizador 3D', 20, 20);
@@ -145,7 +125,6 @@ const QuoterPage = () => {
         doc.setTextColor(100);
         doc.text(`Fecha: ${new Date().toLocaleDateString()}`, 20, 30);
 
-        // Details
         doc.setDrawColor(200);
         doc.line(20, 35, 190, 35);
 
@@ -157,16 +136,14 @@ const QuoterPage = () => {
         doc.text(`Archivo: ${file?.name || 'N/A'}`, 20, 65);
         doc.text(`Material: ${material?.name || 'N/A'}`, 20, 75);
         doc.text(`Color: ${selectedColor || 'N/A'}`, 20, 85);
-        doc.text(`Dimensiones: ${dimensions.x} x ${dimensions.y} x ${dimensions.z} mm`, 20, 95);
+        doc.text(`Dimensiones: ${displayDims.x} x ${displayDims.y} x ${displayDims.z} mm`, 20, 95);
 
-        // Price Breakdown
-        doc.text(`Costo Impresión: ${formatCurrency(itemPrice)}`, 20, 110);
+        doc.text(`Costo Impresión: ${formatCurrency(totalPrice)}`, 20, 110);
         doc.text(`Envío: ${formatCurrency(SHIPPING_COST)}`, 20, 120);
 
-        // Total
         doc.setFontSize(16);
         doc.setTextColor(6, 182, 212);
-        doc.text(`Total a Pagar: ${formatCurrency(itemPrice + SHIPPING_COST)}`, 140, 140);
+        doc.text(`Total a Pagar: ${formatCurrency(totalPrice + SHIPPING_COST)}`, 140, 140);
 
         doc.save('cotizacion_3d.pdf');
     };
@@ -199,6 +176,9 @@ const QuoterPage = () => {
         // Here you would typically reset state or redirect
     };
 
+    // Calculate final total for display
+    const finalTotal = totalPrice > 0 ? totalPrice + SHIPPING_COST : 0;
+
     return (
         <div className="pt-24 pb-12 min-h-screen container mx-auto px-4 lg:px-8 relative">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-[calc(100vh-8rem)]">
@@ -213,20 +193,20 @@ const QuoterPage = () => {
                     </div>
 
                     <div className="flex-1 relative bg-slate-950/50">
-                        {fileUrl ? (
+                        {geometry ? (
                             <div className="w-full h-full">
                                 <Canvas shadows camera={{ position: [0, 0, 150], fov: 50 }}>
-                                    <Suspense fallback={null}>
-                                        <Stage environment="city" intensity={0.6}>
-                                            <Center>
-                                                <ModelViewer
-                                                    url={fileUrl}
-                                                    onLoaded={handleModelLoaded}
-                                                    scale={modelScale}
-                                                />
-                                            </Center>
-                                        </Stage>
-                                    </Suspense>
+                                    <Stage environment="city" intensity={0.6}>
+                                        <Center>
+                                            {/* 3. RENDERING LOGIC */}
+                                            <mesh
+                                                geometry={geometry}
+                                                scale={[scaleFactor, scaleFactor, scaleFactor]}
+                                            >
+                                                <meshStandardMaterial color="#06b6d4" roughness={0.3} metalness={0.2} />
+                                            </mesh>
+                                        </Center>
+                                    </Stage>
                                     <OrbitControls autoRotate />
                                     <Grid infiniteGrid fadeDistance={400} sectionColor="#4f4f4f" cellColor="#4f4f4f" />
                                 </Canvas>
@@ -244,7 +224,7 @@ const QuoterPage = () => {
                                 <input type="file" accept=".stl" className="hidden" onChange={handleFileUpload} />
                                 <div className="px-6 py-3 rounded-full bg-gradient-to-r from-cyan-500 to-violet-600 text-white font-medium shadow-lg shadow-cyan-500/25 flex items-center gap-2 group-hover:scale-105 transition-transform">
                                     <Upload className="w-5 h-5" />
-                                    <span>{fileUrl ? 'Subir Otro Archivo' : 'Subir Archivo (.stl)'}</span>
+                                    <span>{geometry ? 'Subir Otro Archivo' : 'Subir Archivo (.stl)'}</span>
                                 </div>
                             </label>
                         </div>
@@ -267,7 +247,8 @@ const QuoterPage = () => {
                                         <label className="text-xs text-slate-500 block mb-1 uppercase">Eje {axis}</label>
                                         <input
                                             type="number"
-                                            value={dimensions[axis]}
+                                            // 4. DISPLAY LOGIC
+                                            value={displayDims[axis]}
                                             onChange={(e) => handleDimensionChange(axis, e.target.value)}
                                             className="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-cyan-500 transition-colors"
                                         />
@@ -289,7 +270,7 @@ const QuoterPage = () => {
                                     key={m.id}
                                     onClick={() => {
                                         setMaterial(m);
-                                        setSelectedColor(null); // Reset color on material change
+                                        setSelectedColor(null);
                                     }}
                                     className={clsx(
                                         "relative p-4 rounded-xl border text-left transition-all",
@@ -304,7 +285,6 @@ const QuoterPage = () => {
                             ))}
                         </div>
 
-                        {/* Color Dropdown */}
                         {material && (
                             <div className="mt-4 animate-in fade-in slide-in-from-top-2">
                                 <label className="text-xs text-slate-500 block mb-2">Color Disponible</label>
@@ -337,7 +317,6 @@ const QuoterPage = () => {
                                 </p>
                             </div>
 
-                            {/* Discount Code */}
                             <div className="pt-2 border-t border-white/5">
                                 <label className="text-xs text-slate-500 mb-1 block flex items-center gap-1">
                                     <Tag className="w-3 h-3" />
@@ -361,7 +340,7 @@ const QuoterPage = () => {
                         <div className="space-y-2 py-4 border-t border-white/5">
                             <div className="flex justify-between items-center text-sm">
                                 <span className="text-slate-400">Pieza(s)</span>
-                                <span className="text-white font-mono">{formatCurrency(itemPrice)}</span>
+                                <span className="text-white font-mono">{formatCurrency(totalPrice)}</span>
                             </div>
                             <div className="flex justify-between items-center text-sm">
                                 <span className="text-slate-400">Envío Fijo</span>
@@ -369,7 +348,7 @@ const QuoterPage = () => {
                             </div>
                             <div className="flex justify-between items-center text-xl font-bold text-cyan-400 pt-2 border-t border-white/5 mt-2">
                                 <span>TOTAL</span>
-                                <span>{formatCurrency(itemPrice > 0 ? itemPrice + SHIPPING_COST : 0)}</span>
+                                <span>{formatCurrency(finalTotal)}</span>
                             </div>
                         </div>
 
@@ -416,11 +395,11 @@ const QuoterPage = () => {
                             </div>
                             <div className="flex justify-between py-2 border-b border-white/5">
                                 <span className="text-slate-400">Dimensiones</span>
-                                <span className="text-white font-medium text-sm">{dimensions.x} x {dimensions.y} x {dimensions.z} mm</span>
+                                <span className="text-white font-medium text-sm">{displayDims.x} x {displayDims.y} x {displayDims.z} mm</span>
                             </div>
                             <div className="flex justify-between py-2 mt-4">
                                 <span className="text-lg text-slate-200 font-bold">Total a Pagar</span>
-                                <span className="text-2xl text-cyan-400 font-bold">{formatCurrency(itemPrice + SHIPPING_COST)}</span>
+                                <span className="text-2xl text-cyan-400 font-bold">{formatCurrency(finalTotal)}</span>
                             </div>
                         </div>
 
