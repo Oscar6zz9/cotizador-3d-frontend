@@ -9,7 +9,7 @@ const MySwal = withReactContent(Swal);
 
 const RegisterPage = () => {
     const [formData, setFormData] = useState({ name: '', email: '', password: '', confirmPassword: '' });
-    const { login } = useAuth();
+    const { register } = useAuth();
     const navigate = useNavigate();
 
     const handleChange = (e) => {
@@ -43,24 +43,39 @@ const RegisterPage = () => {
         return true;
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (!validateForm()) return;
 
-        // Simulate register success
-        login({ name: formData.name, email: formData.email });
+        try {
+            await register({
+                name: formData.name,
+                email: formData.email,
+                password: formData.password
+            });
 
-        MySwal.fire({
-            icon: 'success',
-            title: '¡Cuenta Creada!',
-            text: 'Te has registrado correctamente.',
-            background: '#020617',
-            color: '#fff',
-            timer: 1500,
-            showConfirmButton: false
-        }).then(() => {
-            navigate('/cotizador');
-        });
+            MySwal.fire({
+                icon: 'success',
+                title: '¡Cuenta Creada!',
+                text: 'Te has registrado correctamente.',
+                background: '#020617',
+                color: '#fff',
+                timer: 1500,
+                showConfirmButton: false
+            }).then(() => {
+                navigate('/cotizador');
+            });
+
+        } catch (error) {
+            MySwal.fire({
+                icon: 'error',
+                title: 'Error de Registro',
+                text: error.response?.data?.message || 'No se pudo crear la cuenta. Inténtalo de nuevo.',
+                background: '#020617',
+                color: '#fff',
+                confirmButtonColor: '#06b6d4'
+            });
+        }
     };
 
     return (

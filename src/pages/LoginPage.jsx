@@ -47,24 +47,34 @@ const LoginPage = () => {
         return true;
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (!validateForm()) return;
 
-        // Simulate login success
-        login({ email: formData.email });
+        try {
+            await login(formData);
 
-        MySwal.fire({
-            icon: 'success',
-            title: '¡Bienvenido!',
-            text: 'Has iniciado sesión correctamente.',
-            background: '#020617',
-            color: '#fff',
-            timer: 1500,
-            showConfirmButton: false
-        }).then(() => {
-            navigate('/cotizador');
-        });
+            MySwal.fire({
+                icon: 'success',
+                title: '¡Bienvenido!',
+                text: 'Has iniciado sesión correctamente.',
+                background: '#020617',
+                color: '#fff',
+                timer: 1500,
+                showConfirmButton: false
+            }).then(() => {
+                navigate('/cotizador');
+            });
+        } catch (error) {
+            MySwal.fire({
+                icon: 'error',
+                title: 'Error de Inicio de Sesión',
+                text: error.response?.data?.message || 'Credenciales inválidas o error en el servidor.',
+                background: '#020617',
+                color: '#fff',
+                confirmButtonColor: '#06b6d4'
+            });
+        }
     };
 
     return (

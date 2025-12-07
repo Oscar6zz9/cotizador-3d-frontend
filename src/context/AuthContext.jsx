@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import api from '../api/axiosConfig';
 
 const AuthContext = createContext();
 
@@ -12,24 +13,65 @@ export const AuthProvider = ({ children }) => {
         const token = localStorage.getItem('token');
         const savedUser = localStorage.getItem('user');
 
-        if (token && savedUser) {
-            setUser(JSON.parse(savedUser));
+        if (token) {
+            // Optimistically set authenticaticated if token exists
+            // In a real app, you might want to validate the token with an API call here
             setIsAuthenticated(true);
+            if (savedUser) {
+                try {
+                    setUser(JSON.parse(savedUser));
+                } catch (e) {
+                    console.error("Error parsing saved user", e);
+                }
+            }
         }
         setLoading(false);
     }, []);
 
-    const login = (userData) => {
-        // Mock login logic
-        const mockToken = 'mock-jwt-token-' + Math.random().toString(36).substring(2);
-        const userToSave = { ...userData, name: userData.name || 'Usuario' };
+    const login = async (credentials) => {
+        try {
+            // Post to backend
+            const response = await api.post('/auth/login', credentials);
 
-        localStorage.setItem('token', mockToken);
-        localStorage.setItem('user', JSON.stringify(userToSave));
+            // Assume response structure: { token: "...", ...userData } or { token: "...", user: {...} }
+            // Adjust based on your actual Backend response. 
+            // Common pattern: response.data = { token: "JwtString", email: "...", name: "..." }
 
-        setUser(userToSave);
-        setIsAuthenticated(true);
-        return true;
+            const { token, ...userData } = response.data;
+
+            // If the backend puts user data in a 'user' object:
+            const userToSave = userData.user || userData;
+
+            localStorage.setItem('token', token);
+            localStorage.setItem('user', JSON.stringify(userToSave));
+
+            setUser(userToSave);
+            setIsAuthenticated(true);
+            return true;
+        } catch (error) {
+            console.error("Login failed:", error);
+            throw error; // Re-throw to be handled by the UI (LoginPage)
+        }
+    };
+
+    const register = async (userData) => {
+        try {
+            const response = await api.post('/auth/register', userData);
+
+            // Assume response structure same as login: { token: "...", ...userData }
+            const { token, ...data } = response.data;
+            const userToSave = data.user || data;
+
+            localStorage.setItem('token', token);
+            localStorage.setItem('user', JSON.stringify(userToSave));
+
+            setUser(userToSave);
+            setIsAuthenticated(true);
+            return true;
+        } catch (error) {
+            console.error("Registration failed:", error);
+            throw error;
+        }
     };
 
     const logout = () => {
@@ -47,7 +89,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     return (
-        <AuthContext.Provider value={{ user, isAuthenticated, login, logout, updateUser, loading }}>
+        <AuthContext.Provider value={{ user, isAuthenticated, login, register, logout, updateUser, loading }}>
             {!loading && children}
         </AuthContext.Provider>
     );
