@@ -1,16 +1,29 @@
-# React + Vite
+# 🎲 Sistema Cotizador de Impresiones 3D - Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Aplicación web moderna para la cotización automática de servicios de impresión 3D. Permite a los usuarios visualizar modelos STL en tiempo real, calcular costos basados en volumen y material, y gestionar pedidos.
 
-Currently, two official plugins are available:
+Este proyecto es la interfaz de usuario (Frontend) construida con **React** y **Vite**, diseñada para conectarse con un Backend en Spring Boot.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🚀 Características Principales
 
-## React Compiler
+* **Visualizador 3D Interactivo:** Renderizado de archivos `.stl` usando Three.js y React Three Fiber.
+* **Cálculo Automático:** Obtención de dimensiones (X, Y, Z) y escalado proporcional automático.
+* **Cotización Dinámica:** Precios ajustados en tiempo real según el material (Resina/PLA) y volumen.
+* **Seguridad:** Autenticación de usuarios mediante JWT (JSON Web Tokens).
+* **Roles de Usuario:** Interficies adaptadas para Clientes, Vendedores y Administradores.
+* **Generación de PDF:** Descarga de comprobantes de cotización al instante.
+* **Diseño UI:** Interfaz "Dark Mode" profesional usando Tailwind CSS.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 🛠️ Tecnologías Utilizadas
 
-## Expanding the ESLint configuration
+* **Core:** React 18, Vite.
+* **Estilos:** Tailwind CSS.
+* **3D Engine:** Three.js, @react-three/fiber, @react-three/drei.
+* **HTTP Client:** Axios (con interceptores para JWT).
+* **Utilidades:** SweetAlert2 (Alertas), jsPDF (Reportes), Lucide React (Iconos).
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## 📋 Requisitos Previos
+
+* Node.js (v18 o superior).
+* NPM (Gestor de paquetes).
+* Backend Java Spring Boot corriendo en el puerto `8080`.
