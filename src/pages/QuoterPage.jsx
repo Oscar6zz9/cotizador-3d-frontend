@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect, Suspense } from 'react';
+import { useState, useRef, useEffect, Suspense, useMemo } from 'react';
 import { Canvas, useLoader, useFrame } from '@react-three/fiber';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
 import { OrbitControls, Stage, Center, Grid } from '@react-three/drei';
 import * as THREE from 'three';
-import { Upload, Box, Settings, DollarSign, ArrowRight, Download, Check, X } from 'lucide-react';
+import { Upload, Box, Settings, DollarSign, ArrowRight, Download, Check, X, Tag } from 'lucide-react';
 import clsx from 'clsx';
 import jsPDF from 'jspdf';
 import Swal from 'sweetalert2';
@@ -11,21 +11,32 @@ import withReactContent from 'sweetalert2-react-content';
 
 const MySwal = withReactContent(Swal);
 
+// Color Data
+const MATERIAL_COLORS = {
+    resin: ['Gris Estándar', 'Blanco', 'Negro', 'Transparente', 'Azul Dental'],
+    pla: ['Blanco Mate', 'Negro Carbón', 'Rojo Fuego', 'Azul Eléctrico', 'Naranja']
+};
+
+const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(amount);
+};
+
 // Model Viewer Component
-const ModelViewer = ({ url, setDimensions }) => {
+const ModelViewer = ({ url, onLoaded, scale }) => {
     const meshRef = useRef();
     const geom = useLoader(STLLoader, url);
 
     useEffect(() => {
         if (geom) {
             geom.computeBoundingBox();
+            geom.center(); // Center geometry
             const box = geom.boundingBox;
-            const x = (box.max.x - box.min.x).toFixed(2);
-            const y = (box.max.y - box.min.y).toFixed(2);
-            const z = (box.max.z - box.min.z).toFixed(2);
-            setDimensions({ x, y, z });
+            const x = (box.max.x - box.min.x);
+            const y = (box.max.y - box.min.y);
+            const z = (box.max.z - box.min.z);
+            onLoaded({ x, y, z });
         }
-    }, [geom, setDimensions]);
+    }, [geom, onLoaded]);
 
     useFrame((state) => {
         if (meshRef.current) {
@@ -35,7 +46,7 @@ const ModelViewer = ({ url, setDimensions }) => {
     });
 
     return (
-        <mesh ref={meshRef} geometry={geom} scale={[1, 1, 1]}>
+        <mesh ref={meshRef} geometry={geom} scale={scale}>
             <meshStandardMaterial color="#06b6d4" roughness={0.3} metalness={0.2} />
         </mesh>
     );
@@ -44,27 +55,53 @@ const ModelViewer = ({ url, setDimensions }) => {
 const QuoterPage = () => {
     const [file, setFile] = useState(null);
     const [fileUrl, setFileUrl] = useState(null);
-    const [dimensions, setDimensions] = useState({ x: 0, y: 0, z: 0 });
+    const [dimensions, setDimensions] = useState({ x: 0, y: 0, z: 0 }); // Current dimensions (editable)
+    const [originalDimensions, setOriginalDimensions] = useState({ x: 0, y: 0, z: 0 }); // Original from file
     const [material, setMaterial] = useState(null);
+    const [selectedColor, setSelectedColor] = useState(null);
     const [showModal, setShowModal] = useState(false);
-    const [totalPrice, setTotalPrice] = useState(0);
+    const [itemPrice, setItemPrice] = useState(0);
+    const [discountCode, setDiscountCode] = useState('');
+
+    // Constants
+    const SHIPPING_COST = 4990;
 
     const materials = [
-        { id: 'resin', name: 'Resina', desc: 'Alta precisión', price: 0.8 },
-        { id: 'pla', name: 'Plástico (PLA)', desc: 'Resistente', price: 0.5 },
+        { id: 'resin', name: 'Resina', desc: 'Alta precisión', price: 60 }, // Price per cm3 (approx CLP)
+        { id: 'pla', name: 'Plástico (PLA)', desc: 'Resistente', price: 25 },
     ];
+
+    // Calculate scale vector based on original vs current dimensions
+    const modelScale = useMemo(() => {
+        if (originalDimensions.x === 0) return [1, 1, 1];
+        // Calculate scale factor from X axis change and apply uniformly (to maintain aspect ratio)
+        // Or if we want independent scaling, we'd do [x/ox, y/oy, z/oz]
+        // The prompt says "update the mesh.scale proportionally". Let's assume aspect ratio lock for now, 
+        // OR calculate scale based on the dominant change? 
+        // Simplest valid interpretation: X/Y/Z are tied. We'll use X as the master for the visual scale if ratios change?
+        // Actually, let's allow non-uniform scaling visual since inputs are separate.
+        return [
+            dimensions.x / originalDimensions.x,
+            dimensions.y / originalDimensions.y,
+            dimensions.z / originalDimensions.z
+        ];
+    }, [dimensions, originalDimensions]);
 
     useEffect(() => {
         if (dimensions.x > 0 && material) {
-            const volume = parseFloat(dimensions.x) * parseFloat(dimensions.y) * parseFloat(dimensions.z);
-            // Simple mock price: Volume * rate * 0.001 (scaling factor)
-            const calculated = (volume * material.price * 0.0001).toFixed(2);
-            // Ensure minimum price of $5
-            setTotalPrice(Math.max(calculated, 5.00).toFixed(2));
+            // Volume in mm3 -> cm3
+            const volumeCm3 = (parseFloat(dimensions.x) * parseFloat(dimensions.y) * parseFloat(dimensions.z)) / 1000;
+            // Price calculation
+            // Base logic: Volume * Material Rate
+            let price = volumeCm3 * material.price;
+
+            // Minimum price logic
+            const minPrice = 5000; // CLP
+            setItemPrice(Math.max(price, minPrice));
         } else {
-            setTotalPrice(0);
+            setItemPrice(0);
         }
-    }, [dimensions, material]);
+    }, [dimensions, material, selectedColor]);
 
     const handleFileUpload = (e) => {
         const file = e.target.files[0];
@@ -72,7 +109,28 @@ const QuoterPage = () => {
             setFile(file);
             const url = URL.createObjectURL(file);
             setFileUrl(url);
+            setMaterial(null);
+            setSelectedColor(null);
         }
+    };
+
+    const handleModelLoaded = (dims) => {
+        // Round to 2 decimals
+        const cleanDims = {
+            x: parseFloat(dims.x.toFixed(2)),
+            y: parseFloat(dims.y.toFixed(2)),
+            z: parseFloat(dims.z.toFixed(2))
+        };
+        setOriginalDimensions(cleanDims);
+        setDimensions(cleanDims);
+    };
+
+    const handleDimensionChange = (axis, value) => {
+        // In a real app we might lock aspect ratio here
+        setDimensions(prev => ({
+            ...prev,
+            [axis]: parseFloat(value) || 0
+        }));
     };
 
     const generatePDF = () => {
@@ -80,14 +138,14 @@ const QuoterPage = () => {
 
         // Header
         doc.setFontSize(22);
-        doc.setTextColor(6, 182, 212); // Cyan color
+        doc.setTextColor(6, 182, 212);
         doc.text('Cotizador 3D', 20, 20);
 
         doc.setFontSize(12);
         doc.setTextColor(100);
         doc.text(`Fecha: ${new Date().toLocaleDateString()}`, 20, 30);
 
-        // Details logic
+        // Details
         doc.setDrawColor(200);
         doc.line(20, 35, 190, 35);
 
@@ -98,25 +156,27 @@ const QuoterPage = () => {
         doc.setFontSize(12);
         doc.text(`Archivo: ${file?.name || 'N/A'}`, 20, 65);
         doc.text(`Material: ${material?.name || 'N/A'}`, 20, 75);
-        doc.text(`Dimensiones: ${dimensions.x} x ${dimensions.y} x ${dimensions.z} mm`, 20, 85);
+        doc.text(`Color: ${selectedColor || 'N/A'}`, 20, 85);
+        doc.text(`Dimensiones: ${dimensions.x} x ${dimensions.y} x ${dimensions.z} mm`, 20, 95);
 
-        const volume = (parseFloat(dimensions.x) * parseFloat(dimensions.y) * parseFloat(dimensions.z) / 1000).toFixed(2);
-        doc.text(`Volumen Estimado: ${volume} cm³`, 20, 95);
+        // Price Breakdown
+        doc.text(`Costo Impresión: ${formatCurrency(itemPrice)}`, 20, 110);
+        doc.text(`Envío: ${formatCurrency(SHIPPING_COST)}`, 20, 120);
 
-        // Price
+        // Total
         doc.setFontSize(16);
         doc.setTextColor(6, 182, 212);
-        doc.text(`Total a Pagar: $${totalPrice}`, 140, 120);
+        doc.text(`Total a Pagar: ${formatCurrency(itemPrice + SHIPPING_COST)}`, 140, 140);
 
         doc.save('cotizacion_3d.pdf');
     };
 
     const handleQuoteRequest = () => {
-        if (!file || !material) {
+        if (!file || !material || !selectedColor) {
             MySwal.fire({
                 icon: 'warning',
                 title: 'Datos Incompletos',
-                text: 'Por favor sube un archivo y selecciona un material.',
+                text: 'Por favor completa todos los campos (Archivo, Material y Color).',
                 background: '#020617',
                 color: '#fff',
                 confirmButtonColor: '#06b6d4'
@@ -145,7 +205,6 @@ const QuoterPage = () => {
 
                 {/* Left Column: 3D Viewer */}
                 <div className="lg:col-span-8 bg-slate-900/50 backdrop-blur-sm rounded-3xl border border-white/10 overflow-hidden relative flex flex-col">
-                    {/* ... (Same 3D Viewer Code) ... */}
                     <div className="p-6 border-b border-white/10 flex justify-between items-center z-10 bg-slate-900/50">
                         <h2 className="text-xl font-semibold flex items-center gap-2">
                             <span className="w-8 h-8 rounded-full bg-cyan-500/10 flex items-center justify-center text-cyan-400 text-sm font-bold">1</span>
@@ -160,7 +219,11 @@ const QuoterPage = () => {
                                     <Suspense fallback={null}>
                                         <Stage environment="city" intensity={0.6}>
                                             <Center>
-                                                <ModelViewer url={fileUrl} setDimensions={setDimensions} />
+                                                <ModelViewer
+                                                    url={fileUrl}
+                                                    onLoaded={handleModelLoaded}
+                                                    scale={modelScale}
+                                                />
                                             </Center>
                                         </Stage>
                                     </Suspense>
@@ -195,33 +258,39 @@ const QuoterPage = () => {
                     <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
                         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                             <span className="w-6 h-6 rounded-full bg-cyan-500/10 flex items-center justify-center text-cyan-400 text-xs font-bold">2</span>
-                            Dimensiones
+                            Dimensiones (mm)
                         </h3>
                         <div className="space-y-4">
                             <div className="grid grid-cols-3 gap-4">
-                                {['X', 'Y', 'Z'].map((axis) => (
+                                {['x', 'y', 'z'].map((axis) => (
                                     <div key={axis}>
-                                        <label className="text-xs text-slate-500 block mb-1">Eje {axis}</label>
-                                        <div className="bg-slate-950 border border-white/5 rounded-lg px-3 py-2 text-sm text-slate-300 font-mono">
-                                            {dimensions[axis.toLowerCase()] || '0.00'}
-                                        </div>
+                                        <label className="text-xs text-slate-500 block mb-1 uppercase">Eje {axis}</label>
+                                        <input
+                                            type="number"
+                                            value={dimensions[axis]}
+                                            onChange={(e) => handleDimensionChange(axis, e.target.value)}
+                                            className="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-cyan-500 transition-colors"
+                                        />
                                     </div>
                                 ))}
                             </div>
                         </div>
                     </div>
 
-                    {/* Material Selection */}
+                    {/* Material & Color Selection */}
                     <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
                         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                             <span className="w-6 h-6 rounded-full bg-cyan-500/10 flex items-center justify-center text-cyan-400 text-xs font-bold">3</span>
                             Material y Color
                         </h3>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-2 gap-4 mb-4">
                             {materials.map((m) => (
                                 <button
                                     key={m.id}
-                                    onClick={() => setMaterial(m)}
+                                    onClick={() => {
+                                        setMaterial(m);
+                                        setSelectedColor(null); // Reset color on material change
+                                    }}
                                     className={clsx(
                                         "relative p-4 rounded-xl border text-left transition-all",
                                         material?.id === m.id
@@ -234,6 +303,23 @@ const QuoterPage = () => {
                                 </button>
                             ))}
                         </div>
+
+                        {/* Color Dropdown */}
+                        {material && (
+                            <div className="mt-4 animate-in fade-in slide-in-from-top-2">
+                                <label className="text-xs text-slate-500 block mb-2">Color Disponible</label>
+                                <select
+                                    value={selectedColor || ''}
+                                    onChange={(e) => setSelectedColor(e.target.value)}
+                                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                                >
+                                    <option value="" disabled>Seleccionar color...</option>
+                                    {MATERIAL_COLORS[material.id].map(color => (
+                                        <option key={color} value={color}>{color}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                     </div>
 
                     {/* Summary */}
@@ -245,21 +331,51 @@ const QuoterPage = () => {
 
                         <div className="bg-slate-950 rounded-xl p-4 space-y-3 mb-6">
                             <div>
-                                <p className="text-xs text-slate-500 mb-1">Material</p>
-                                <p className="text-sm text-white font-medium">{material ? material.name : "No seleccionado"}</p>
+                                <p className="text-xs text-slate-500 mb-1">Configuración</p>
+                                <p className="text-sm text-white font-medium">
+                                    {material ? `${material.name} - ${selectedColor || 'Sin color'}` : "No seleccionado"}
+                                </p>
+                            </div>
+
+                            {/* Discount Code */}
+                            <div className="pt-2 border-t border-white/5">
+                                <label className="text-xs text-slate-500 mb-1 block flex items-center gap-1">
+                                    <Tag className="w-3 h-3" />
+                                    Código de Descuento
+                                </label>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={discountCode}
+                                        onChange={(e) => setDiscountCode(e.target.value)}
+                                        placeholder="CÓDIGO"
+                                        className="bg-slate-900 border border-white/10 rounded-lg px-3 py-1 text-sm w-full focus:border-cyan-500 outline-none uppercase"
+                                    />
+                                    <button className="text-xs bg-white/5 hover:bg-white/10 px-3 rounded-lg border border-white/5 transition-colors">
+                                        Aplicar
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
                         <div className="space-y-2 py-4 border-t border-white/5">
-                            <div className="flex justify-between items-center text-xl font-bold text-cyan-400 pt-2">
-                                <span>TOTAL ESTIMADO</span>
-                                <span>${totalPrice}</span>
+                            <div className="flex justify-between items-center text-sm">
+                                <span className="text-slate-400">Pieza(s)</span>
+                                <span className="text-white font-mono">{formatCurrency(itemPrice)}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-sm">
+                                <span className="text-slate-400">Envío Fijo</span>
+                                <span className="text-white font-mono">{formatCurrency(SHIPPING_COST)}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-xl font-bold text-cyan-400 pt-2 border-t border-white/5 mt-2">
+                                <span>TOTAL</span>
+                                <span>{formatCurrency(itemPrice > 0 ? itemPrice + SHIPPING_COST : 0)}</span>
                             </div>
                         </div>
 
                         <button
                             onClick={handleQuoteRequest}
-                            disabled={!file || !material}
+                            disabled={!file || !material || !selectedColor}
                             className="w-full py-4 rounded-xl bg-gradient-to-r from-cyan-500 to-violet-600 text-white font-bold text-lg shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/40 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             Solicitar Cotización
@@ -295,12 +411,16 @@ const QuoterPage = () => {
                                 <span className="text-white font-medium">{material?.name}</span>
                             </div>
                             <div className="flex justify-between py-2 border-b border-white/5">
+                                <span className="text-slate-400">Color</span>
+                                <span className="text-white font-medium">{selectedColor}</span>
+                            </div>
+                            <div className="flex justify-between py-2 border-b border-white/5">
                                 <span className="text-slate-400">Dimensiones</span>
                                 <span className="text-white font-medium text-sm">{dimensions.x} x {dimensions.y} x {dimensions.z} mm</span>
                             </div>
                             <div className="flex justify-between py-2 mt-4">
                                 <span className="text-lg text-slate-200 font-bold">Total a Pagar</span>
-                                <span className="text-2xl text-cyan-400 font-bold">${totalPrice}</span>
+                                <span className="text-2xl text-cyan-400 font-bold">{formatCurrency(itemPrice + SHIPPING_COST)}</span>
                             </div>
                         </div>
 
