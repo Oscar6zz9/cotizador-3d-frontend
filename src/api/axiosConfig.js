@@ -10,9 +10,11 @@ const api = axios.create({
 // Request interceptor to add the auth token header to requests
 api.interceptors.request.use(
     (config) => {
-        const token = localStorage.getItem('token');
+        let token = localStorage.getItem('token');
         if (token) {
-            config.headers['Authorization'] = `Bearer ${token}`; // Authorization: Bearer <token>
+            token = token.replace(/^"|"$/g, '');
+            config.headers['Authorization'] = `Bearer ${token}`;
+            console.log("🚀 Enviando Token:", `Bearer ${token.substring(0, 10)}...`);
         }
         return config;
     },

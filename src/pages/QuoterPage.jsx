@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
+import api from '../api/axiosConfig';
 import { OrbitControls, Stage, Center, Grid } from '@react-three/drei';
 import * as THREE from 'three';
 import { Upload, Box, Check, X, Tag, Download } from 'lucide-react';
@@ -8,6 +9,7 @@ import clsx from 'clsx';
 import jsPDF from 'jspdf';
 import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
+
 
 const MySwal = withReactContent(Swal);
 
@@ -163,17 +165,54 @@ const QuoterPage = () => {
         setShowModal(true);
     };
 
-    const confirmOrder = () => {
-        setShowModal(false);
-        MySwal.fire({
-            icon: 'success',
-            title: '¡Pedido Recibido!',
-            text: 'Tu solicitud ha sido enviada con éxito.',
-            background: '#020617',
-            color: '#fff',
-            confirmButtonColor: '#06b6d4'
-        });
-        // Here you would typically reset state or redirect
+    const confirmOrder = async () => {
+        try {
+            const payload = {
+                totalAmount: finalTotal,
+                status: "PENDING",
+                orderDetails: [
+                    {
+                        productName: `Impresión 3D Custom - ${file?.name}`,
+                        material: `${material?.name} - ${selectedColor}`,
+                        dimensions: `${displayDims.x}x${displayDims.y}x${displayDims.z}mm`,
+                        subtotal: totalPrice
+                    }
+                ]
+            };
+
+            await api.post('/orders', payload);
+
+            setShowModal(false);
+
+            MySwal.fire({
+                icon: 'success',
+                title: '¡Pedido Recibido!',
+                text: 'Tu solicitud ha sido guardada exitosamente.',
+                background: '#020617',
+                color: '#fff',
+                confirmButtonColor: '#06b6d4',
+                showCancelButton: true,
+                confirmButtonText: 'Aceptar',
+                cancelButtonText: 'Descargar Comprobante PDF',
+                cancelButtonColor: '#475569'
+            }).then((result) => {
+                if (result.dismiss === Swal.DismissReason.cancel) {
+                    generatePDF();
+                }
+                // Optional: Reset form or redirect
+            });
+
+        } catch (error) {
+            console.error("Error creating order:", error);
+            MySwal.fire({
+                icon: 'error',
+                title: 'Error al procesar',
+                text: 'No se pudo guardar el pedido. Intente nuevamente.',
+                background: '#020617',
+                color: '#fff',
+                confirmButtonColor: '#06b6d4'
+            });
+        }
     };
 
     // Calculate final total for display
